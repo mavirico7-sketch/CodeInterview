@@ -144,6 +144,20 @@ class InterviewService:
 
         return content, usage
 
+    def _append_phase_marker(self, session: InterviewSession) -> None:
+        """Add a system message marking the start of the current phase."""
+        marker = f"[PHASE START] {session.phase}"
+        for msg in reversed(session.messages):
+            if msg.role == "system" and msg.content.startswith("[PHASE START]"):
+                if msg.content == marker:
+                    return
+                break
+        session.messages.append(SessionMessage(
+            role="system",
+            content=marker,
+            token_count=self._llm.count_tokens(marker)
+        ))
+
     def _record_final_summary(
         self,
         session: InterviewSession,
@@ -865,6 +879,9 @@ class InterviewService:
             raise ValueError("Interview is not in interview phase")
 
         await self._ensure_available_environments(session)
+
+        if not session.messages:
+            self._append_phase_marker(session)
         
         # Initial instruction (not stored in messages)
         initial_instruction = "[Interview started. Introduce yourself briefly and ask your first question.]"
@@ -925,6 +942,7 @@ class InterviewService:
             raise ValueError("Live coding already started")
 
         await self._ensure_available_environments(session)
+        self._append_phase_marker(session)
 
         initial_instruction = (
             "[Live coding started. Create the first challenge using change_challenge, "
@@ -984,6 +1002,8 @@ class InterviewService:
 
         if session.display_messages.final:
             raise ValueError("Final summary already generated")
+
+        self._append_phase_marker(session)
 
         collected_content, summary_usage = await self._generate_final_summary(
             session,

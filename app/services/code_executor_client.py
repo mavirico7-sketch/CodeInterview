@@ -28,6 +28,7 @@ class CodeExecutorClient:
 
         environments = []
         for item in data:
+            print(f"Item: {item}")
             name = item.get("name") or item.get("id") or ""
             environments.append(
                 Environment(

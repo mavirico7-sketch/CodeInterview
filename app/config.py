@@ -127,7 +127,7 @@ class CodeExecutorConfig:
     @classmethod
     def from_env(cls) -> "CodeExecutorConfig":
         return cls(
-            base_url=get_env("CODE_EXECUTOR_BASE_URL", "http://code-executor-api:8000"),
+            base_url=get_env("CODE_EXECUTOR_BASE_URL", "http://code-executor-api:8000/"),
             timeout_seconds=get_env_float("CODE_EXECUTOR_TIMEOUT_SECONDS", 15.0),
         )
 

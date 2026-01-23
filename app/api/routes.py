@@ -247,5 +247,6 @@ async def health_check():
 async def get_environments(
 ):
     service = CodeExecutorClient()
+    print(f"Code Executor Base URL: {service._base_url}")
     """Get available execution environments."""
     return await service.list_environments()

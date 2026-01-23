@@ -129,6 +129,9 @@ final_system_prompt: |
 
   ## CRITICAL
   - Write one final message to the candidate in {language}
+  - Do NOT ask any questions or request additional information
+  - Do NOT suggest follow-up actions or next steps; this is the final message
+  - Do NOT include any candidate responses or role-play both sides
   - Do not call any tools
 
 summarization_prompt: |
