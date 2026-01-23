@@ -1,0 +1,23 @@
+# FastAPI and server
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# Async MongoDB driver
+motor==3.5.1
+pymongo==4.8.0
+
+# OpenAI
+openai==1.47.0
+
+# Configuration
+pyyaml==6.0.2
+pydantic==2.9.1
+pydantic-settings==2.5.2
+
+# Token counting
+tiktoken==0.7.0
+
+# HTTP client (for OpenAI)
+httpx==0.27.2
+

@@ -1,0 +1,100 @@
+# ============================================
+# Interview Simulator Configuration
+# ============================================
+# This is the single source of truth for all configuration.
+# Both docker-compose and the application read from this file.
+#
+# Usage:
+#   1. Copy this file: cp interview.conf.example interview.conf
+#   2. Edit the values below
+#   3. Run: docker-compose up -d
+# ============================================
+
+# --------------------------------------------
+# OpenAI API Settings
+# --------------------------------------------
+# REQUIRED: Your OpenAI API key
+OPENAI_API_KEY=sk-your-api-key-here
+# Default: https://api.openai.com/v1
+OPENAI_BASE_URL=https://api.openai.com/v1
+# Default: gpt-4o
+OPENAI_MODEL=gpt-4o
+# Default: 0.7
+OPENAI_TEMPERATURE=0.7
+# Default: 4096
+OPENAI_MAX_TOKENS=4096
+
+# --------------------------------------------
+# MongoDB Settings
+# --------------------------------------------
+# Hostname of MongoDB server (use 'mongodb' for docker-compose)
+# Default: mongodb
+MONGODB_HOST=mongodb
+# Default: 27017
+MONGODB_PORT=27017
+# Default: interview_simulator
+MONGODB_DATABASE=interview_simulator
+# Default: sessions
+MONGODB_COLLECTION=sessions
+
+# MongoDB Authentication (optional)
+# If set, MongoDB will be initialized with these credentials
+# and the application will use them to connect.
+# Leave empty for no authentication (development mode).
+MONGODB_USERNAME=
+MONGODB_PASSWORD=
+# Variables expected by official mongo image (keep in sync with above)
+MONGO_INITDB_ROOT_USERNAME=
+MONGO_INITDB_ROOT_PASSWORD=
+
+# --------------------------------------------
+# Interview Settings
+# --------------------------------------------
+# Maximum tokens in context before summarization kicks in
+# Default: 50000
+INTERVIEW_CONTEXT_TOKEN_LIMIT=50000
+# Maximum total tokens spent in interview before forcing end
+# Default: 1000000
+INTERVIEW_TOTAL_TOKEN_LIMIT=1000000
+# Maximum number of message exchanges (user + assistant pairs)
+# This limits interview length - one exchange per user message
+# Default: 25
+INTERVIEW_MAX_EXCHANGES=25
+# Number of initial messages to preserve when summarizing
+# Default: 2
+INTERVIEW_PRESERVE_INITIAL_MESSAGES=2
+
+# --------------------------------------------
+# Live Coding Settings
+# --------------------------------------------
+# Maximum number of challenges in live coding
+MAX_CHALLENGES=3
+
+# Code Executor Service
+# Base URL of code executor API (see code-executor README)
+CODE_EXECUTOR_BASE_URL=http://localhost:8001
+# Request timeout in seconds
+CODE_EXECUTOR_TIMEOUT_SECONDS=15
+
+# --------------------------------------------
+# Server Settings
+# --------------------------------------------
+# Default: 0.0.0.0
+SERVER_HOST=0.0.0.0
+# Default: 8000
+SERVER_PORT=8000
+
+# --------------------------------------------
+# Mongo Express Settings (debug profile only)
+# --------------------------------------------
+# Web UI credentials for mongo-express
+# Default: admin
+MONGO_EXPRESS_USERNAME=admin
+# Default: admin
+MONGO_EXPRESS_PASSWORD=admin
+# Variables expected by mongo-express image (keep in sync with above)
+ME_CONFIG_MONGODB_SERVER=mongodb
+ME_CONFIG_MONGODB_ADMINUSERNAME=
+ME_CONFIG_MONGODB_ADMINPASSWORD=
+ME_CONFIG_BASICAUTH_USERNAME=admin
+ME_CONFIG_BASICAUTH_PASSWORD=admin
