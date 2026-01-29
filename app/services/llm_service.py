@@ -290,6 +290,7 @@ class LLMService:
             )
 
         if session.phase == InterviewPhase.LIVE_CODING:
+            remaining_exchanges = settings.live_coding.max_exchanges - session.live_coding_exchange_count
             return prompts.live_coding_system_prompt.format(
                 vacancy=session.init_info.vacancy,
                 job_description=session.init_info.description or "Not provided",
@@ -297,6 +298,9 @@ class LLMService:
                 level=session.init_info.level,
                 language=session.init_info.language,
                 max_challenges=settings.live_coding.max_challenges,
+                exchange_count=session.live_coding_exchange_count,
+                max_exchanges=settings.live_coding.max_exchanges,
+                remaining_exchanges=remaining_exchanges,
                 selected_environment=self._format_selected_environment(session.live_coding),
                 available_environments=self._format_environments(session.live_coding.available_environments),
                 current_challenge=self._format_current_challenge(session.live_coding),

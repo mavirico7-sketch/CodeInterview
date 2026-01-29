@@ -110,11 +110,13 @@ class InterviewConfig:
 class LiveCodingConfig:
     """Live coding settings from environment."""
     max_challenges: int
+    max_exchanges: int  # Maximum number of message exchanges in live coding phase
 
     @classmethod
     def from_env(cls) -> "LiveCodingConfig":
         return cls(
             max_challenges=get_env_int("MAX_CHALLENGES", 3),
+            max_exchanges=get_env_int("LIVE_CODING_MAX_EXCHANGES", 30),
         )
 
 

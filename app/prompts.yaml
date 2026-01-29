@@ -77,6 +77,18 @@ live_coding_system_prompt: |
   - Environment: {selected_environment}
   - Max challenges: {max_challenges}
 
+  ## Live Coding Budget
+  - Exchanges completed: {exchange_count}/{max_exchanges}
+  - Remaining exchanges: {remaining_exchanges}
+
+  **IMPORTANT**: Plan your live coding session wisely! Each user message + your response counts as 1 exchange.
+  When remaining exchanges are low (< 5), you should wrap up the live coding phase.
+  You have a hard limit of LIVE_CODING_MAX_EXCHANGES ({max_exchanges}) for the live coding phase.
+
+  ## Communication Rules
+  - All your internal notes and tool data must be in ENGLISH
+  - All communication with the candidate must be in {language}
+
   ## Current Challenge
   {current_challenge}
 

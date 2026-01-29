@@ -946,6 +946,8 @@ class InterviewService:
 
         if final_content and not llm_error:
             session.exchange_count += 1
+            if session.phase == InterviewPhase.LIVE_CODING:
+                session.live_coding_exchange_count += 1
 
         # Always save session to preserve state
         save_success = await self._db.update_session(session_id, session)

@@ -148,6 +148,7 @@ class InterviewSession(BaseModel):
     current_context_tokens: int = 0
     # Exchange count: one exchange = user message + assistant response
     exchange_count: int = 0
+    live_coding_exchange_count: int = 0
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
