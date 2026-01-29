@@ -276,6 +276,7 @@ class LLMService:
             available_envs = self._format_environments(session.live_coding.available_environments)
             return prompts.interview_system_prompt.format(
                 vacancy=session.init_info.vacancy,
+                job_description=session.init_info.description or "Not provided",
                 stack=session.init_info.stack,
                 level=session.init_info.level,
                 language=session.init_info.language,
@@ -291,6 +292,7 @@ class LLMService:
         if session.phase == InterviewPhase.LIVE_CODING:
             return prompts.live_coding_system_prompt.format(
                 vacancy=session.init_info.vacancy,
+                job_description=session.init_info.description or "Not provided",
                 stack=session.init_info.stack,
                 level=session.init_info.level,
                 language=session.init_info.language,
@@ -299,7 +301,6 @@ class LLMService:
                 available_environments=self._format_environments(session.live_coding.available_environments),
                 current_challenge=self._format_current_challenge(session.live_coding),
                 challenges_history=self._format_challenges_history(session.live_coding),
-                code_state=self._format_code_state(session.live_coding),
                 candidate_notes=notes_str
             )
 
@@ -342,20 +343,21 @@ class LLMService:
                 "content": f"[CONVERSATION SUMMARY]\n{session.context_summary}"
             })
         
-        # Add initial instruction if provided (for interview start)
-        if initial_instruction and not session.messages:
-            messages.append({
-                "role": "user",
-                "content": initial_instruction
-            })
-        
         # Add conversation messages (user and assistant only)
         for msg in session.messages:
             messages.append({
                 "role": msg.role,
                 "content": msg.content
             })
-        
+
+        # Add initial instruction if provided (for phase starts like interview/live_coding)
+        # This comes AFTER conversation history so the model sees it as the latest context
+        if initial_instruction:
+            messages.append({
+                "role": "user",
+                "content": initial_instruction
+            })
+
         return messages
     
     async def create_response(

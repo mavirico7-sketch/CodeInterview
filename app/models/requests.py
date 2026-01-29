@@ -13,6 +13,7 @@ from app.models.session import CandidateLevel, InterviewPhase, InterviewInitInfo
 class CreateSessionRequest(BaseModel):
     """Request body for creating a new interview session."""
     vacancy: str = Field(..., description="Job position title", min_length=1)
+    description: str = Field(default="", description="Optional job description to tailor the interview")
     stack: str = Field(..., description="Technology stack (comma-separated)", min_length=1)
     level: CandidateLevel = Field(..., description="Candidate experience level")
     language: str = Field(default="English", description="Interview language for communication")

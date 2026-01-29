@@ -4,6 +4,7 @@ Interview Service - orchestrates the interview flow.
 
 import json
 import logging
+import re
 from typing import Optional, Callable, Awaitable
 
 from app.config import get_settings
@@ -39,6 +40,92 @@ class ToolResult:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_llm_response(content: str) -> str:
+    """
+    Remove internal reasoning/chain-of-thought that some models leak into responses.
+
+    Some models (especially through proxies) include their internal reasoning
+    in the response content. This function strips obvious patterns.
+    """
+    if not content:
+        return content
+
+    original_content = content  # Save for debugging
+    original_len = len(content)
+
+    # Pattern 1: Lines starting with "A:" or "Assistant:" (internal monologue)
+    content = re.sub(r'^A:\s*.+$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^Assistant:\s*.+$', '', content, flags=re.MULTILINE)
+
+    # Pattern 2: Internal planning blocks (rules, reminders, meta-commentary)
+    internal_patterns = [
+        # Russian patterns
+        r'^Правила:.*$',
+        r'^Напоминание:.*$',
+        r'^План:.*$',
+        r'^После ответа кандидата.*$',
+        r'^Когда он ответит.*$',
+        r'^Не описывать новый challenge.*$',
+        r'^Сначала кандидат должен.*$',
+        r'^Это первый\.$',
+        r'^Это \d+(-й|-ый)? challenge.*$',
+        r'^max \d+ challenges.*$',
+        r'^Exchanges completed:.*$',
+        r'^Это \d+ exchanges.*$',
+        r'^Жду (его |)ответ.*$',
+        r'^Буду ждать.*$',
+        r'^Теперь (я |)(должен|буду|жду).*$',
+        # English patterns
+        r'^Rules:.*$',
+        r'^Reminder:.*$',
+        r'^Plan:.*$',
+        r'^Note to self:.*$',
+        r'^Internal:.*$',
+        r'^TODO:.*$',
+        r'^Next steps?:.*$',
+        r'^I (will|should|need to|must).*$',
+        r'^Now I (will|should|need to|must).*$',
+        r'^After (the |)candidate.*$',
+        r'^When (the |they |he |she ).*respond.*$',
+        r'^Waiting for.*$',
+        r'^This is (the |)challenge \d+.*$',
+        r'^Challenge \d+ of \d+.*$',
+        r'^Max(imum)? \d+ challenges.*$',
+        # Tool/instruction echoing
+        r'^(Use |Using |I\'ll use )?(change_challenge|edit_code|change_phase|add_candidate_note).*$',
+        r'^Do NOT.*$',
+        r'^IMPORTANT:.*$',
+        r'^Remember:.*$',
+    ]
+    for pattern in internal_patterns:
+        content = re.sub(pattern, '', content, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Pattern 3: Remove blocks that look like internal reasoning (bracketed or prefixed)
+    content = re.sub(r'\[Internal[^\]]*\]', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'###\s*Internal.*?###', '', content, flags=re.IGNORECASE | re.DOTALL)
+
+    # Pattern 4: Remove excessive blank lines (more than 2 consecutive)
+    content = re.sub(r'\n{3,}', '\n\n', content)
+
+    # Pattern 5: Trim whitespace
+    content = content.strip()
+
+    if len(content) < original_len:
+        removed_chars = original_len - len(content)
+        logger.info(
+            "Cleaned LLM response: removed %d chars of internal reasoning",
+            removed_chars
+        )
+        # Log raw content for debugging if significant amount was removed
+        if removed_chars > 500:
+            logger.warning(
+                "Large amount of internal reasoning detected. First 1000 chars of RAW content: %s",
+                original_content[:1000].replace("\n", "\\n")
+            )
+
+    return content
 
 
 class InterviewService:
@@ -133,6 +220,9 @@ class InterviewService:
             if retry_usage:
                 for key, value in retry_usage.items():
                     usage[key] = usage.get(key, 0) + value
+
+        # Clean any internal reasoning that leaked into the response
+        content = _clean_llm_response(content)
 
         summary_preview = (content or "")[:500].replace("\n", "\\n")
         logger.info(
@@ -396,6 +486,13 @@ class InterviewService:
         session: InterviewSession
     ) -> str:
         """Format tool results for LLM tool messages."""
+        if tool_name == "change_challenge" and session.live_coding.current_challenge:
+            # Add challenge details to help model understand the change
+            challenge = session.live_coding.current_challenge
+            details = f"\nNew challenge topic: {challenge.topic}\nDescription: {challenge.description}"
+            if challenge.initial_code:
+                details += f"\nInitial code has been set in the editor."
+            return result.message + details
         return result.message
 
     async def _run_agent_loop(
@@ -416,9 +513,6 @@ class InterviewService:
         last_content = ""
 
         for round_index in range(self._max_tool_rounds):
-            base_messages = self._llm.build_messages(session, initial_instruction)
-            request_messages = base_messages + tool_context_messages
-            request_tools = self._llm.get_tools_definition(session)
             try:
                 response = await self._llm.create_response(
                     session,
@@ -457,6 +551,7 @@ class InterviewService:
                     content_preview
                 )
 
+            # No tool calls — this is the final candidate-facing response
             if not tool_calls:
                 if not collected_content:
                     retry_response = await self._retry_empty_response(
@@ -471,13 +566,12 @@ class InterviewService:
                     if retry_usage:
                         for key in usage_total:
                             usage_total[key] += retry_usage.get(key, 0)
-                return collected_content, usage_total, phase_changed, new_phase, None
+                return _clean_llm_response(collected_content), usage_total, phase_changed, new_phase, None
 
-            tool_call_content = collected_content
-            tool_call_usage = usage
-            assistant_tool_calls = {
+            # Model called tools — preserve content in assistant message
+            assistant_tool_msg = {
                 "role": "assistant",
-                "content": "",
+                "content": collected_content or "",
                 "tool_calls": [
                     {
                         "id": tc["id"],
@@ -490,12 +584,22 @@ class InterviewService:
                     for tc in tool_calls
                 ]
             }
-            tool_context_messages.append(assistant_tool_calls)
+            tool_context_messages.append(assistant_tool_msg)
 
-            tool_results_log = []
+            # Process each tool call
             for tc in tool_calls:
                 args = self._parse_tool_arguments(tc["arguments"])
-                session, result = await self._process_tool_call(session, tc["name"], args)
+                try:
+                    session, result = await self._process_tool_call(session, tc["name"], args)
+                except Exception as e:
+                    logger.exception(
+                        "Tool call exception session=%s phase=%s tool=%s args=%s",
+                        session_id,
+                        session.phase,
+                        tc["name"],
+                        tc["arguments"]
+                    )
+                    result = ToolResult(f"Tool execution failed: {str(e)}")
                 logger.info(
                     "Tool result session=%s phase=%s tool=%s result=%s",
                     session_id,
@@ -506,14 +610,6 @@ class InterviewService:
                 if result.phase_changed:
                     phase_changed = True
                     new_phase = result.new_phase
-                tool_results_log.append({
-                    "tool_call_id": tc["id"],
-                    "name": tc["name"],
-                    "arguments": tc["arguments"],
-                    "result": result.message,
-                    "phase_changed": result.phase_changed,
-                    "new_phase": result.new_phase
-                })
 
                 tool_context_messages.append({
                     "role": "tool",
@@ -529,54 +625,10 @@ class InterviewService:
                     round_index
                 )
                 return "", usage_total, phase_changed, new_phase, None
-            # After executing tool calls, force a candidate-facing response without tools.
-            followup_instruction = {
-                "role": "system",
-                "content": "Respond to the candidate with a single message. Do not call tools."
-            }
-            followup_messages = tool_context_messages + [followup_instruction]
-            followup_base_messages = self._llm.build_messages(session, initial_instruction)
-            followup_request_messages = followup_base_messages + followup_messages
-            try:
-                followup_response = await self._llm.create_response(
-                    session,
-                    include_tools=False,
-                    initial_instruction=initial_instruction,
-                    extra_messages=followup_messages
-                )
-            except Exception as e:
-                logger.exception(
-                    "LLM followup error session=%s phase=%s round=%s",
-                    session_id,
-                    session.phase,
-                    round_index
-                )
-                return "", usage_total, phase_changed, new_phase, str(e)
 
-            collected_content = followup_response.get("content", "")
-            usage = followup_response.get("usage", {})
+            # Loop continues — next iteration calls LLM with tool results in context
 
-            if usage:
-                for key in usage_total:
-                    usage_total[key] += usage.get(key, 0)
-
-            if not collected_content:
-                retry_response = await self._retry_empty_response(
-                    session,
-                    initial_instruction,
-                    followup_messages,
-                    reason="post_tool_followup",
-                    session_id=session_id
-                )
-                collected_content = retry_response.get("content", "")
-                retry_usage = retry_response.get("usage", {})
-                if retry_usage:
-                    for key in usage_total:
-                        usage_total[key] += retry_usage.get(key, 0)
-
-            return collected_content, usage_total, phase_changed, new_phase, None
-
-        return last_content, usage_total, phase_changed, new_phase, None
+        return _clean_llm_response(last_content), usage_total, phase_changed, new_phase, None
     
     # ========== Context Management ==========
     
@@ -785,47 +837,93 @@ class InterviewService:
         elif session.phase == InterviewPhase.LIVE_CODING:
             session.display_messages.live_coding.append(display_msg)
 
-        session = await self._check_and_summarize_context(session)
+        # Save user message immediately to prevent data loss if LLM call fails
+        await self._db.update_session(session_id, session)
 
-        logger.info("Calling LLM session=%s phase=%s", session_id, session.phase)
-        stop_on_phase_change = True
-        collected_content, usage, phase_changed, new_phase, error = await self._run_agent_loop(
-            session,
-            stop_on_phase_change=stop_on_phase_change,
-            session_id=session_id
-        )
-        if error:
-            raise RuntimeError(error)
-        if usage:
-            session.total_tokens_used += usage.get("total_tokens", 0)
+        collected_content = ""
+        phase_changed = False
+        new_phase = None
+        llm_error = None
 
-        if phase_changed and new_phase == InterviewPhase.FINAL and not collected_content:
-            collected_content, summary_usage = await self._generate_final_summary(
+        try:
+            session = await self._check_and_summarize_context(session)
+
+            logger.info("Calling LLM session=%s phase=%s", session_id, session.phase)
+            stop_on_phase_change = True
+            collected_content, usage, phase_changed, new_phase, error = await self._run_agent_loop(
                 session,
+                stop_on_phase_change=stop_on_phase_change,
                 session_id=session_id
             )
-            if summary_usage:
-                session.total_tokens_used += summary_usage.get("total_tokens", 0)
+            if error:
+                logger.error(
+                    "LLM agent loop error session=%s phase=%s error=%s",
+                    session_id,
+                    session.phase,
+                    error
+                )
+                llm_error = error
+            if usage:
+                session.total_tokens_used += usage.get("total_tokens", 0)
 
-        if (
-            not collected_content
-            and response_phase == InterviewPhase.LIVE_CODING
-            and not (phase_changed and new_phase == InterviewPhase.FINAL)
-        ):
-            challenge = session.live_coding.current_challenge
-            if challenge:
+            if phase_changed and new_phase == InterviewPhase.FINAL and not collected_content:
+                collected_content, summary_usage = await self._generate_final_summary(
+                    session,
+                    session_id=session_id
+                )
+                if summary_usage:
+                    session.total_tokens_used += summary_usage.get("total_tokens", 0)
+
+            # Fallback for LIVE_CODING phase
+            if (
+                not collected_content
+                and response_phase == InterviewPhase.LIVE_CODING
+                and not (phase_changed and new_phase == InterviewPhase.FINAL)
+            ):
+                challenge = session.live_coding.current_challenge
+                if challenge:
+                    collected_content = (
+                        f"New challenge: {challenge.topic}\n\n"
+                        f"{challenge.description}\n\n"
+                        "Start coding in the editor and let me know when you're ready to discuss."
+                    )
+
+            # Fallback for INTERVIEW phase
+            if (
+                not collected_content
+                and response_phase == InterviewPhase.INTERVIEW
+                and not phase_changed
+            ):
                 collected_content = (
-                    f"New challenge: {challenge.topic}\n\n"
-                    f"{challenge.description}\n\n"
-                    "Start coding in the editor and let me know when you're ready to discuss."
+                    "I apologize, but I couldn't generate a response. "
+                    "Could you please repeat your answer or rephrase it?"
+                )
+                logger.warning(
+                    "Using fallback response for empty content session=%s phase=%s",
+                    session_id,
+                    session.phase
+                )
+
+        except Exception as e:
+            logger.exception(
+                "Unexpected error in LLM processing session=%s phase=%s",
+                session_id,
+                session.phase
+            )
+            llm_error = str(e)
+            if not collected_content:
+                collected_content = (
+                    "I apologize, but I encountered a technical issue. "
+                    "Please try sending your message again."
                 )
 
         final_preview = (collected_content or "")[:500].replace("\n", "\\n")
         logger.info(
-            "LLM final response session=%s phase=%s content_len=%s preview=%s",
+            "LLM final response session=%s phase=%s content_len=%s error=%s preview=%s",
             session_id,
             session.phase,
             len(collected_content or ""),
+            llm_error,
             final_preview
         )
 
@@ -846,10 +944,17 @@ class InterviewService:
                 elif response_phase == InterviewPhase.LIVE_CODING:
                     session.display_messages.live_coding.append(assistant_msg)
 
-        if final_content:
+        if final_content and not llm_error:
             session.exchange_count += 1
 
-        await self._db.update_session(session_id, session)
+        # Always save session to preserve state
+        save_success = await self._db.update_session(session_id, session)
+        if not save_success:
+            logger.error(
+                "Failed to save session session=%s phase=%s",
+                session_id,
+                session.phase
+            )
 
         return MessageResponse(
             session_id=session_id,
@@ -946,7 +1051,8 @@ class InterviewService:
 
         initial_instruction = (
             "[Live coding started. Create the first challenge using change_challenge, "
-            "then greet the candidate and present the task.]"
+            "then greet the candidate and present the task. "
+            "Do NOT include any internal reasoning or planning in your response.]"
         )
 
         collected_content, usage, phase_changed, _, error = await self._run_agent_loop(

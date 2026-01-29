@@ -56,6 +56,7 @@ class InterviewProgress(BaseModel):
 class InterviewInitInfo(BaseModel):
     """Initial interview configuration provided by the client."""
     vacancy: str  # e.g., "Backend Developer", "Data Scientist"
+    description: str = ""  # Optional job description
     stack: str  # e.g., "Python, FastAPI, PostgreSQL, Redis"
     level: CandidateLevel
     language: str  # e.g., "Russian", "English", "Spanish"

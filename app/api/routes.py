@@ -42,6 +42,7 @@ async def create_session(
     """
     init_info = InterviewInitInfo(
         vacancy=request.vacancy,
+        description=request.description,
         stack=request.stack,
         level=request.level,
         language=request.language
