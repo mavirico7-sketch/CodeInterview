@@ -351,7 +351,7 @@ class InterviewService:
             if environment_data:
                 session.live_coding.environment = Environment(**environment_data)
             else:
-                session.live_coding.environment = self._select_environment(session)
+                session.live_coding.environment = await self._select_environment(session)
             session.phase = InterviewPhase.LIVE_CODING
             return session, ToolResult(
                 "Transitioned to live coding phase.",
@@ -695,24 +695,28 @@ class InterviewService:
         except Exception:
             session.live_coding.available_environments = []
 
-    def _select_environment(self, session: InterviewSession) -> Optional[Environment]:
-        """Select the best environment based on interview context."""
+    async def _select_environment(self, session: InterviewSession) -> Optional[Environment]:
+        """Select the best environment using LLM based on interview context."""
         environments = session.live_coding.available_environments or []
         if not environments:
             return None
 
-        stack = f"{session.init_info.vacancy} {session.init_info.stack}".lower()
-        ml_keywords = ["ml", "machine learning", "pytorch", "numpy", "pandas", "scikit", "sklearn"]
+        try:
+            chosen_name = await self._llm.select_environment(
+                vacancy=session.init_info.vacancy,
+                description=session.init_info.description,
+                stack=session.init_info.stack,
+                level=session.init_info.level,
+                environments=environments,
+            )
+        except Exception:
+            logger.exception("LLM environment selection failed, using first available")
+            return environments[0]
 
-        if any(keyword in stack for keyword in ml_keywords):
+        if chosen_name:
             for env in environments:
-                env_text = f"{env.name} {env.description}".lower()
-                if "ml" in env_text or "numpy" in env_text or "scikit" in env_text:
+                if env.name == chosen_name:
                     return env
-
-        for env in environments:
-            if env.name.lower() == "python":
-                return env
 
         return environments[0]
     

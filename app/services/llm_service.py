@@ -421,6 +421,49 @@ class LLMService:
         }
     
     
+    async def select_environment(
+        self,
+        vacancy: str,
+        description: str,
+        stack: str,
+        level: str,
+        environments: list[Environment],
+    ) -> str | None:
+        """Ask the LLM to pick the best execution environment. Returns env name."""
+        if not environments:
+            return None
+
+        prompts = get_prompts()
+        env_lines = "\n".join(
+            f"- {env.name}: {env.description} (file: {env.file_extension})"
+            for env in environments
+        )
+        prompt_text = prompts.environment_selection_prompt.format(
+            vacancy=vacancy,
+            job_description=description or "Not provided",
+            stack=stack,
+            level=level,
+            environments=env_lines,
+        )
+
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": prompt_text}],
+            temperature=0,
+            max_tokens=32,
+        )
+
+        chosen = (response.choices[0].message.content or "").strip().lower()
+        # Validate against available names
+        env_names = {env.name.lower(): env.name for env in environments}
+        if chosen in env_names:
+            return env_names[chosen]
+        # Fallback: check if response contains any env name
+        for key, name in env_names.items():
+            if key in chosen:
+                return name
+        return environments[0].name
+
     async def summarize_context(self, messages_to_summarize: list[dict]) -> dict:
         """Summarize a portion of the conversation (chat only, not notes/plan)."""
         prompts = get_prompts()

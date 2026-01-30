@@ -156,6 +156,21 @@ summarization_prompt: |
   Conversation to summarize:
   {conversation}
 
+environment_selection_prompt: |
+  You are selecting the best code execution environment for a live coding interview.
+
+  ## Vacancy Info
+  - Position: {vacancy}
+  - Job Description: {job_description}
+  - Tech Stack: {stack}
+  - Level: {level}
+
+  ## Available Environments
+  {environments}
+
+  Choose the single most appropriate environment for this candidate's live coding session.
+  Respond with ONLY the environment name (e.g. "python" or "node"), nothing else.
+
 phase_transition_prompt: |
   The question phase of the interview is now complete.
   
